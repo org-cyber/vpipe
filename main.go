@@ -57,8 +57,10 @@ var sanitizePatterns = []*regexp.Regexp{
 // ==============================
 
 type GroqRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	Temperature float64   `json:"temperature"`
+	MaxTokens   int       `json:"max_tokens"`
 }
 
 type Message struct {
@@ -74,9 +76,32 @@ type GroqResponse struct {
 	} `json:"choices"`
 }
 
+type GroqErrorResponse struct {
+	Error struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error"`
+}
+
+type Config struct {
+	APIKey string
+}
+
 // ==============================
 // Main
 // ==============================
+func loadConfig() (*Config, error) {
+	_ = godotenv.Load()
+
+	apiKey := os.Getenv("GROQ_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("GROQ_API_KEY is missing")
+	}
+
+	return &Config{
+		APIKey: apiKey,
+	}, nil
+}
 
 func main() {
 	dryRun := flag.Bool("dry-run", false, "Show sanitized input without calling AI")
@@ -94,27 +119,25 @@ func main() {
 	commandArgs := flag.Args()
 
 	if len(commandArgs) > 0 {
-		err := executeCommand(commandArgs, *dryRun, *timeout)
+		config, err := loadConfig()
 		if err != nil {
+			color.Red("❌ " + err.Error())
 			os.Exit(1)
 		}
+
+		err = executeCommand(commandArgs, *dryRun, *timeout, config)
 		return
 	}
 
-	err := godotenv.Load()
+	config, err := loadConfig()
 	if err != nil {
 		color.Yellow("⚠️  No .env file found. Ensure GROQ_API_KEY is set.")
+		os.Exit(1)
 	}
 
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) != 0 {
 		showHelp()
-		os.Exit(1)
-	}
-
-	apiKey := os.Getenv("GROQ_API_KEY")
-	if apiKey == "" {
-		color.Red("❌ GROQ_API_KEY is missing!")
 		os.Exit(1)
 	}
 
@@ -144,15 +167,17 @@ func main() {
 
 	color.HiBlue("🔍 Analyzing error...")
 
-	aiResponse, err := callGroqAPI(sanitizedInput, apiKey)
+	aiResponse, err := callGroqAPI(sanitizedInput, config.APIKey)
 	if err != nil {
 		color.Red(fmt.Sprintf("❌ AI Error: %v", err))
 		os.Exit(1)
 	}
 
 	fmt.Println()
-	color.Green("💡 Suggested Fix:")
-	color.White(aiResponse)
+color.HiGreen("━━━━━━━━━━ AI Analysis ━━━━━━━━━━")
+color.White(aiResponse)
+color.HiBlack("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+fmt.Println()
 	fmt.Println()
 	color.Magenta("⚠️  Always verify suggestions before applying!")
 	color.HiBlack("─────────────────────────────────────────")
@@ -162,14 +187,7 @@ func main() {
 // Execute Command Mode
 // ==============================
 
-func executeCommand(args []string, dryRun bool, timeout int) error {
-	err := godotenv.Load()
-
-	apiKey := os.Getenv("GROQ_API_KEY")
-	if apiKey == "" {
-		return fmt.Errorf("missing GROQ_API_KEY")
-	}
-
+func executeCommand(args []string, dryRun bool, timeout int, config *Config) error {
 	color.Cyan(fmt.Sprintf("🔧 Running: %s", strings.Join(args, " ")))
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
@@ -181,20 +199,39 @@ func executeCommand(args []string, dryRun bool, timeout int) error {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err = cmd.Run()
+	err := cmd.Run()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); //checks if the error came from the command process itself
+		ok {
+			exitCode = exitErr.ExitCode() //extracts the real exit code e.g 0 = sucess, 1 = generic failure etc.
+		} else {
+			exitCode = -1
+		}
+	}
 
-	output := stdout.String() + stderr.String()
+	stdOutText := stdout.String()
+	stdErrText := stderr.String()
 
-	if ctx.Err() == context.DeadlineExceeded {
-		output += "\n[Command timed out]"
+	timedOut := ctx.Err() == context.DeadlineExceeded
+	if timedOut {
 		color.Yellow("⚠️ Command timed out")
 	}
 
-	if output == "" {
+	if stdOutText == "" && stdErrText == "" {
 		return err
 	}
 
-	sanitized := sanitizeInput(output)
+	analysisInput := fmt.Sprintf(
+		"Command: %s\nExit Code: %d\nTimed Out: %v\n\nSTDOUT:\n%s\n\nSTDERR:\n%s",
+		strings.Join(args, " "),
+		exitCode,
+		ctx.Err() == context.DeadlineExceeded,
+		stdOutText,
+		stdErrText,
+	)
+
+	sanitized := sanitizeInput(analysisInput)
 
 	if dryRun {
 		color.Yellow("Dry Run Mode:")
@@ -204,14 +241,15 @@ func executeCommand(args []string, dryRun bool, timeout int) error {
 
 	color.HiBlue("🔍 Analyzing error...")
 
-	resp, err := callGroqAPI(sanitized, apiKey)
+	aiResponse, err := callGroqAPI(sanitized, config.APIKey)
 	if err != nil {
+		color.Red(fmt.Sprintf("❌ AI Error: %v", err))
 		return err
 	}
 
 	fmt.Println()
 	color.Green("💡 Suggested Fix:")
-	color.White(resp)
+	color.White(aiResponse)
 	color.HiBlack("─────────────────────────────────────────")
 
 	return nil
@@ -222,10 +260,17 @@ func executeCommand(args []string, dryRun bool, timeout int) error {
 // ==============================
 
 func sanitizeInput(input string) string {
-	if len(input) > 5000 {
-		input = input[:5000] + "\n... [truncated]"
-	}
+	const maxLen = 5000
+	const chunkSize = 2500
 
+	if len(input) > maxLen {
+		start := input[:chunkSize]
+		end := input[len(input)-chunkSize:]
+
+		input = start +
+			"\n\n... [middle truncated for brevity] ...\n\n" +
+			end
+	}
 	result := input
 
 	for _, pattern := range sanitizePatterns {
@@ -233,11 +278,13 @@ func sanitizeInput(input string) string {
 	}
 
 	if username := os.Getenv("USERNAME"); username != "" {
-		result = strings.ReplaceAll(result, username, "[USER]")
+		userPattern := regexp.MustCompile(`\b` + regexp.QuoteMeta(username) + `\b`)
+		result = userPattern.ReplaceAllString(result, "[USER]")
 	}
 
 	if computer := os.Getenv("COMPUTERNAME"); computer != "" {
-		result = strings.ReplaceAll(result, computer, "[MACHINE]")
+		machinePattern := regexp.MustCompile(`\b` + regexp.QuoteMeta(computer) + `\b`)
+		result = machinePattern.ReplaceAllString(result, "[MACHINE]")
 	}
 
 	return result
@@ -251,16 +298,39 @@ func callGroqAPI(errorLog string, apiKey string) (string, error) {
 	url := "https://api.groq.com/openai/v1/chat/completions"
 
 	reqBody := GroqRequest{
-		Model: "llama-3.1-8b-instant",
+		Model:       "llama-3.1-8b-instant",
+		Temperature: 0.2,
+		MaxTokens:   220,
 		Messages: []Message{
 			{
 				Role: "system",
-				Content: "You are a senior developer. Find root cause and give fix. Under 150 words.",
-			},
-			{
-				Role:    "user",
-				Content: errorLog,
-			},
+				Content: `You are a senior software engineer and debugging expert.
+
+Analyze the provided command output carefully.
+
+Respond in exactly this format:
+
+Root cause:
+- short explanation of the main issue
+
+Why it happened:
+- likely technical reason
+
+Suggested fix:
+- 2 to 4 clear actionable steps
+
+Next command to try:
+- one command the developer should run next
+
+Keep the response under 180 words.
+Be direct and practical.`,
+		},
+		{
+			Role:    "user",
+			Content: fmt.Sprintf(
+				"Please analyze this command failure and suggest a fix:\n\n%s",
+				errorLog,
+			),
 		},
 	}
 
@@ -281,9 +351,20 @@ func callGroqAPI(errorLog string, apiKey string) (string, error) {
 		Timeout: 20 * time.Second,
 	}
 
-	resp, err := client.Do(req)
+	var resp *http.Response
+	for attempt := 1; attempt <= 3; attempt++ {
+		resp, err = client.Do(req)
+		if err == nil {
+			break
+		}
+
+		if attempt < 3 {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+	}
+
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("request failed after retries: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -292,8 +373,14 @@ func callGroqAPI(errorLog string, apiKey string) (string, error) {
 		return "", err
 	}
 
-	// ✅ IMPORTANT FIX
+	//  IMPORTANT FIX
 	if resp.StatusCode != http.StatusOK {
+		var apiErr GroqErrorResponse
+
+		if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Error.Message != "" {
+			return "", fmt.Errorf("API error (%d): %s", resp.StatusCode, apiErr.Error.Message)
+		}
+
 		return "", fmt.Errorf("API error (%d): %s", resp.StatusCode, string(body))
 	}
 
