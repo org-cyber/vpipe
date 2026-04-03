@@ -1,214 +1,366 @@
-# `$v`
+# v — AI Build Error Analyzer
 
-## V - AI Build Error Analyzer
+<p align="center">
+  <img src="https://img.shields.io/badge/version-2.1.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/Go-1.25.6+-00ADD8?style=flat&logo=go" alt="Go Version">
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
+</p>
 
-## Description
-`V` is a powerful command-line tool designed to streamline the debugging process by providing AI-powered suggestions for build errors. It integrates seamlessly into your development workflow, allowing you to analyze error logs from various sources, including piped input or direct command execution. By leveraging the Groq API, `V` offers intelligent insights while ensuring sensitive information is sanitized before being sent for analysis.
+**v** is a command-line tool that uses AI to analyze build errors and provide actionable debugging suggestions. It automatically captures command output, sanitizes sensitive data, and sends it to an AI provider for intelligent analysis.
+
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+  - [From Source](#from-source)
+  - [Pre-built Binaries](#pre-built-binaries)
+- [Configuration](#configuration)
+  - [Environment Variables](#environment-variables)
+  - [Supported AI Providers](#supported-ai-providers)
+  - [.env File](#env-file)
+- [Usage](#usage)
+  - [Command Execution Mode](#command-execution-mode)
+  - [Piped Input Mode](#piped-input-mode)
+  - [Flag Placement](#flag-placement)
+- [Examples](#examples)
+  - [Basic Examples](#basic-examples)
+  - [Provider Examples](#provider-examples)
+  - [Advanced Examples](#advanced-examples)
+- [Command-Line Flags](#command-line-flags)
+- [Sanitization](#sanitization)
+- [Smart Truncation](#smart-truncation)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
 
 ## Features
-- **AI-Powered Analysis**: Utilizes the Groq API to analyze complex error logs, identify root causes, and suggest specific, actionable fixes.
-- **Flexible Input Modes**:
-    - **Piped Input**: Analyze error messages directly piped from other commands or files. Ideal for quick analysis of existing logs.
-    - **Command Execution**: Execute any command (e.g., `npm run build`, `make`, `go test`) and automatically capture its standard output and error streams for AI analysis.
-- **Robust Data Sanitization**: Automatically detects and redacts sensitive patterns such as API keys, AWS credentials, email addresses, IP addresses, file paths, SSH private keys, and passwords in URLs. This ensures your confidential data remains secure during AI processing.
-- **Dry Run Mode (`--dry-run`)**: Preview the sanitized input that would be sent to the AI without actually making an API call. This is invaluable for verifying that sensitive data is correctly redacted.
-- **Debug Mode (`--debug`)**: Display both the raw and sanitized inputs, along with the AI's raw response, which is useful for troubleshooting and understanding the tool's behavior.
-- **Configurable Command Timeout (`--timeout N`)**: Set a maximum execution time for commands run through `V`, preventing long-running or stuck processes from consuming excessive resources.
+
+- **Multi-Provider Support**: Works with Groq, OpenAI, and Anthropic AI providers
+- **Dual Input Modes**: Execute commands directly or pipe output for analysis
+- **Automatic Sanitization**: Redacts 20+ patterns including API keys, passwords, IPs, emails
+- **Smart Truncation**: Intelligently preserves error-prone lines when input exceeds token limits
+- **Dry Run Mode**: Preview sanitized input without making API calls
+- **Debug Mode**: Inspect raw and sanitized payloads for troubleshooting
+- **Configurable Timeout**: Prevent hung processes with customizable timeouts
+
+---
 
 ## Installation
 
-To get `V` up and running, follow these steps:
+### From Source
 
-1.  **Prerequisites**:
-    *   **Go**: Ensure you have Go (version 1.18 or higher recommended) installed on your system. You can download it from [golang.org](https://golang.org/dl/).
-    *   **Groq API Key**: Obtain an API key from [Groq](https://groq.com/). This key is essential for `V` to communicate with the AI model.
+```bash
+# Clone the repository
+git clone https://github.com/your-repo/v.git
+cd v
 
-2.  **Clone the Repository**:
-    First, clone the `V` repository to your local machine.
-    ```bash
-    git clone https://github.com/your-username/v.git # Replace with your actual repo URL
-    cd v
-    ```
+# Build the executable
+# Windows
+go build -o v.exe
 
-3.  **Build the Executable**:
-    Navigate to the `v` directory (where `main.go` is located) and build the executable.
-    ```bash
-    go build -o v.exe # For Windows
-    # or
-    go build -o v     # For Linux/macOS
-    ```
-    This command compiles the Go source code and creates an executable file named `v.exe` (or `v`).
+# Linux/macOS
+go build -o v
+```
 
-4.  **Set Up Groq API Key**:
-    `V` needs your Groq API key to function. You can provide it in one of two ways:
+### Pre-built Binaries
 
-    *   **Using a `.env` file (Recommended for local development)**:
-        Create a file named `.env` in the same directory as your `v` executable (or in the project root if you run `v` from there). Add the following line to it:
-        ```
-        GROQ_API_KEY=your_groq_api_key_here
-        ```
-        Replace `your_groq_api_key_here` with your actual Groq API key.
+Download pre-built binaries from the `release/` directory:
 
-    *   **Using an Environment Variable**:
-        Set the `GROQ_API_KEY` environment variable directly in your shell. This is often preferred for CI/CD environments or if you don't want a `.env` file.
-        ```bash
-        # For Linux/macOS (add to your .bashrc, .zshrc, etc. for persistence)
-        export GROQ_API_KEY="your_groq_api_key_here"
+| OS | Architecture | Binary |
+|-----|--------------|--------|
+| Windows | x64 | `v-windows-amd64.exe` |
+| Linux | x64 | `v-linux-amd64` |
+| macOS | ARM64 (Apple Silicon) | `v-darwin-arm64` |
+| macOS | x64 | `v-darwin-amd64` |
 
-        # For Windows Command Prompt
-        set GROQ_API_KEY=your_groq_api_key_here
+```bash
+# Example: Linux
+chmod +x release/v-linux-amd64
+sudo mv release/v-linux-amd64 /usr/local/bin/v
+```
 
-        # For Windows PowerShell
-        $env:GROQ_API_KEY="your_groq_api_key_here"
-        ```
+---
 
-5.  **Add to PATH (Optional but Recommended)**:
-    To run `V` from any directory, move the compiled executable (`v.exe` or `v`) to a directory that is included in your system's `PATH` environment variable.
-    *   **Linux/macOS**: `/usr/local/bin`
-    *   **Windows**: Create a `bin` folder (e.g., `C:\Users\YourUser\bin`) and add it to your `PATH`.
+## Configuration
+
+### Environment Variables
+
+| Variable | Required | Description | Default Model |
+|----------|----------|-------------|---------------|
+| `GROQ_API_KEY` | For Groq provider | API key from [Groq](https://console.groq.com/) | llama-3.3-70b-versatile |
+| `OPENAI_API_KEY` | For OpenAI provider | API key from [OpenAI](https://platform.openai.com/) | gpt-4o-mini |
+| `ANTHROPIC_API_KEY` | For Anthropic provider | API key from [Anthropic](https://console.anthropic.com/) | claude-haiku-4-5-20251001 |
+| `V_MODEL` | Optional | Override default model (lowest priority) | Provider-specific |
+
+### Supported AI Providers
+
+**Groq** (Default)
+- Fast inference with free tier available
+- Get API key: https://console.groq.com/
+
+**OpenAI**
+- GPT-4o, GPT-4o-mini, and other models
+- Get API key: https://platform.openai.com/api-keys
+
+**Anthropic**
+- Claude models (Haiku, Sonnet, Opus)
+- Get API key: https://console.anthropic.com/
+
+### .env File
+
+Create a `.env` file in the project root or executable directory:
+
+```bash
+# Choose one provider (or multiple, depending on use)
+GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+---
 
 ## Usage
 
-`V` offers two primary modes of operation: analyzing piped input or executing a command.
+### Command Execution Mode
 
-### 1. Analyzing Piped Input
+Run a command directly through v. It executes the command, captures stdout/stderr, and analyzes the output:
 
-Pipe the output of any command or the content of a file directly into `V`.
-
-**Syntax:**
 ```bash
-<command_output> | v [flags]
-< file.log | v [flags]
+v <command> [args...]
 ```
 
-**Examples:**
-
-*   **Analyze a simple error message:**
-    ```bash
-    echo "Error: Uncaught TypeError: Cannot read properties of undefined (reading 'map')" | v
-    ```
-
-*   **Analyze a build log from a file:**
-    ```bash
-    cat build_error.log | v
-    ```
-
-*   **Analyze `npm run build` output in dry-run mode (to see sanitized input):**
-    ```bash
-    npm run build 2>&1 | v --dry-run
-    ```
-    *(`2>&1` redirects stderr to stdout, ensuring all error messages are piped)*
-
-### 2. Executing a Command
-
-Run a command directly through `V`. `V` will execute the command, capture its output (stdout and stderr), and then send it to the AI for analysis.
-
-**Syntax:**
+**Example:**
 ```bash
-v [flags] <command> [command_arguments...]
+v go build ./...
+v npm run build
+v cargo build 2>&1
 ```
 
-**Important Note on Flags:**
-`V`'s flags (like `--dry-run`, `--debug`, `--timeout`) must be placed *before* the command you want to execute. If your command also has flags, you can separate `V`'s flags from your command's flags using `--`.
+### Piped Input Mode
 
-**Examples:**
+Pipe output from any command into v for analysis:
 
-*   **Analyze `npm run build` errors:**
-    ```bash
-    v npm run build
-    ```
+```bash
+<command> | v
+<command> 2>&1 | v
+cat error.log | v
+```
 
-*   **Analyze `make` errors:**
-    ```bash
-    v make clean all
-    ```
+**Example:**
+```bash
+npm run build 2>&1 | v
+go test ./... 2>&1 | v
+docker build . 2>&1 | v
+```
 
-*   **Analyze `go build` errors:**
-    ```bash
-    v go build ./...
-    ```
+### Flag Placement
 
-*   **Run a Docker build and analyze its output:**
-    ```bash
-    v docker build .
-    ```
+v flags must come **before** the command. Use `--` to separate v flags from command arguments:
 
-*   **Execute a command with a custom timeout (e.g., 60 seconds for `npm test`):**
-    ```bash
-    v --timeout 60 npm test
-    ```
+```bash
+# v flag before command
+v --timeout 60 npm run build
 
-*   **Pass flags to your command (e.g., `--verbose` to `npm run build`):**
-    ```bash
-    v -- npm run build --verbose
-    ```
-    *(The `--` tells `V` to stop parsing its own flags and pass everything that follows directly to the executed command.)*
+# Separate v flags from command args using --
+v --dry-run -- npm run build --verbose
+```
 
-## Flags
+---
 
-Here's a detailed list of the command-line flags available for `V`:
+## Examples
 
-*   **`--dry-run`**:
-    *   **Description**: If set, `V` will process the input (either piped or from a command's output), sanitize it, and then print the sanitized content to the console. It will *not* make any calls to the Groq AI API.
-    *   **Usage**: `v --dry-run <command>` or `echo "error" | v --dry-run`
-    *   **Example**:
-        ```bash
-        v --dry-run npm run build
-        # Output will show:
-        # Dry Run Mode:
-        # --- Sanitized Input Sent to AI ---
-        # [Sanitized build output]
-        # -----------------------------
-        ```
+### Basic Examples
 
-*   **`--debug`**:
-    *   **Description**: Enables verbose debugging output. When used, `V` will print both the raw input (before sanitization) and the sanitized input that is sent to the AI. This is helpful for understanding how `V` processes your data and for troubleshooting sanitization rules.
-    *   **Usage**: `v --debug <command>` or `echo "error" | v --debug`
-    *   **Example**:
-        ```bash
-        echo "My API key is ABC123XYZ" | v --debug
-        # Output will show:
-        # Raw Input: My API key is ABC123XYZ
-        # Sanitized Input: My API key is [REDACTED]
-        # ... (AI analysis will follow)
-        ```
+**Analyze a failed Go build:**
+```bash
+v go build ./...
+```
 
-*   **`--timeout N`**:
-    *   **Description**: Specifies the maximum duration, in seconds, that `V` will wait for an executed command to complete. If the command exceeds this time, `V` will terminate it and proceed to analyze any output captured up to that point. A note about the timeout will be appended to the analyzed output.
-    *   **Default**: `30` seconds.
-    *   **Usage**: `v --timeout 60 <command>`
-    *   **Example**:
-        ```bash
-        v --timeout 10 sleep 20 # 'sleep 20' will be terminated after 10 seconds
-        # Output will include:
-        # ⚠️  Command timed out after 10 seconds. Analyzing captured output...
-        # ... (AI analysis)
-        # [Command timed out after 10 seconds]
-        ```
+**Analyze npm build errors:**
+```bash
+v npm run build
+```
 
-*   **`--help`, `-h`**:
-    *   **Description**: Displays the help message, showing all available flags and usage examples.
-    *   **Usage**: `v --help` or `v -h`
+**Analyze cargo errors:**
+```bash
+v cargo build
+```
 
-## Sanitization Guidelines
+**Pipe existing error log:**
+```bash
+cat build_errors.log | v
+```
 
-`V` employs a set of regular expressions to identify and redact sensitive information from your error logs. This is crucial for privacy and security when sending data to external AI services. The following types of information are currently sanitized:
+**Analyze make output:**
+```bash
+make 2>&1 | v
+```
 
-*   AWS Access Keys (e.g., `AKIA...`, `A3T...`)
-*   AWS Secret Access Keys
-*   Generic API Keys, Tokens, and Secrets (patterns like `api_key`, `token`, `secret` followed by alphanumeric strings)
-*   Email Addresses
-*   IP Addresses (IPv4)
-*   File Paths (both Windows and Unix-like formats)
-*   SSH Private Keys (PEM format)
-*   Passwords embedded in URLs
+### Provider Examples
 
-If you encounter sensitive information that is not being redacted, please consider contributing to improve the sanitization patterns.
+**Use OpenAI instead of Groq:**
+```bash
+v --provider openai go build ./...
+```
+
+**Use Anthropic with custom model:**
+```bash
+v --provider anthropic --model claude-sonnet-4-20250514 npm run build
+```
+
+**Set default model via environment:**
+```bash
+export V_MODEL=gpt-4o
+v npm run build
+```
+
+### Advanced Examples
+
+**Dry run — preview sanitized input:**
+```bash
+v --dry-run go build ./...
+```
+
+**Debug mode — see raw + sanitized payloads:**
+```bash
+v --debug npm run build
+```
+
+**Custom timeout for long-running commands:**
+```bash
+v --timeout 120 go test ./... -v
+```
+
+**Combine multiple flags:**
+```bash
+v --provider openai --model gpt-4o --max-tokens 800 --debug go build ./...
+```
+
+**Preview what would be sent (dry-run with piped input):**
+```bash
+go build ./... 2>&1 | v --dry-run
+```
+
+**Use specific model override:**
+```bash
+v --model llama-3.1-70b-versatile npm run build
+```
+
+---
+
+## Command-Line Flags
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--provider` | - | `groq` | AI provider: `groq`, `openai`, or `anthropic` |
+| `--model` | - | (provider default) | Override the AI model |
+| `--max-tokens` | - | `600` | Maximum tokens in AI response |
+| `--timeout` | - | `30` | Command timeout in seconds |
+| `--dry-run` | - | `false` | Show sanitized input without calling AI |
+| `--debug` | - | `false` | Show raw and sanitized payloads |
+| `--version` | - | `false` | Print version and exit |
+| `--help` | `-h` | `false` | Show help message |
+
+---
+
+## Sanitization
+
+v automatically redacts sensitive patterns before sending data to AI:
+
+| Pattern | Example |
+|---------|---------|
+| AWS Access Keys | `AKIAIOSFODNN7EXAMPLE` |
+| AWS Secret Keys | `aws_secret_access_key=...` |
+| API Keys/Tokens | `api_key=abc123...` |
+| Email Addresses | `user@example.com` |
+| IPv4 Addresses | `192.168.1.100` |
+| Windows Paths | `C:\Users\John\file.txt` |
+| Unix Paths | `/home/user/project` |
+| SSH Private Keys | `-----BEGIN PRIVATE KEY-----...` |
+| Passwords in URLs | `postgres://admin:pass@localhost` |
+| JWT Tokens | `eyJhbGci...` |
+| Environment Username | `USERNAME` value |
+| Environment Hostname | `COMPUTERNAME` value |
+
+**Example dry-run output showing sanitization:**
+```bash
+$ echo "My API key is sk-1234567890abcdef" | v --dry-run
+🔎 Dry Run — Sanitized Input:
+My API key is [REDACTED]
+```
+
+---
+
+## Smart Truncation
+
+When input exceeds 6,000 characters, v uses intelligent truncation:
+
+1. **Scores each line** based on error signal keywords (error, fail, panic, exception, etc.)
+2. **Preserves short lines** (stack traces, error summaries)
+3. **Selects highest-scoring lines** up to the character limit
+4. **Maintains original order** with `[lines omitted]` markers
+
+This ensures the AI receives the most relevant error information even from large logs.
+
+---
+
+## Troubleshooting
+
+**"missing GROQ_API_KEY environment variable"**
+- Set the appropriate API key for your chosen provider
+- Check `.env` file is in the correct directory
+
+**"unsupported provider"**
+- Use: `groq`, `openai`, or `anthropic`
+
+**Command times out**
+- Increase timeout: `v --timeout 120 <command>`
+
+**Empty AI response**
+- Check API key is valid
+- Try `--debug` to see request/response details
+
+**Sanitization not working as expected**
+- Use `--dry-run` to preview output
+- Use `--debug` to see raw vs sanitized
+
+---
+
+## Testing
+
+Run the included test suite:
+
+```bash
+go test -v ./...
+```
+
+Tests cover:
+- Sanitization of AWS keys, emails, IPs, JWTs
+- Smart truncation preserving error lines
+- Error signal detection
+- Configuration loading
+
+---
 
 ## Contributing
-We welcome contributions to `V`! If you have suggestions for new features, improvements to sanitization patterns, bug reports, or want to contribute code, please feel free to:
-1.  Open an issue on the [GitHub repository](https://github.com/your-username/v/issues).
-2.  Fork the repository and submit a pull request.
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Submit a pull request
+
+---
 
 ## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+MIT License — see [LICENSE](LICENSE) file for details.
+
+---
+
+## Version
+
+Current version: **2.1.0**
