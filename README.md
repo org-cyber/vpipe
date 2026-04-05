@@ -64,9 +64,9 @@ go build -o v.exe
 go build -o v
 ```
 
-### Pre-built Binaries
+### Pre-built Binaries (Recommended)
 
-Download pre-built binaries from the `release/` directory:
+Download the correct binary for your platform from the `release/` directory or GitHub Releases:
 
 | OS | Architecture | Binary |
 |-----|--------------|--------|
@@ -75,11 +75,98 @@ Download pre-built binaries from the `release/` directory:
 | macOS | ARM64 (Apple Silicon) | `v-darwin-arm64` |
 | macOS | x64 | `v-darwin-amd64` |
 
+#### macOS / Linux
+
 ```bash
-# Example: Linux
 chmod +x release/v-linux-amd64
 sudo mv release/v-linux-amd64 /usr/local/bin/v
 ```
+
+If you prefer a user-local install:
+
+```bash
+mkdir -p "$HOME/bin"
+mv release/v-linux-amd64 "$HOME/bin/v"
+printf '%s\n' 'export PATH="$HOME/bin:$PATH"' 'export PATH="$PATH:$HOME/bin"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+> If the binary is not named `v`, you can also rename it before moving it:
+> `mv release/v-linux-amd64 /usr/local/bin/v`
+
+#### Windows
+
+1. Download `v-windows-amd64.exe`.
+2. Move it to a folder on your `PATH`, such as `C:\tools` or `C:\Program Files\v`.
+3. If needed, add the folder to `PATH`:
+
+```powershell
+setx PATH "$env:PATH;C:\tools"
+```
+
+4. Open a new terminal and run `v.exe`.
+
+> If you want the command to be exactly `v`, rename the file to `v.exe` before moving it.
+
+### Setup
+
+Before using the tool, set the API key for your chosen provider:
+
+```bash
+# For Groq
+export GROQ_API_KEY="your_groq_api_key"
+
+# For OpenAI
+export OPENAI_API_KEY="your_openai_api_key"
+
+# For Anthropic
+export ANTHROPIC_API_KEY="your_anthropic_api_key"
+```
+
+Optionally set a default model:
+
+```bash
+export V_MODEL="gpt-4o-mini"
+```
+
+On Windows PowerShell:
+
+```powershell
+setx GROQ_API_KEY "your_groq_api_key"
+setx V_MODEL "gpt-4o-mini"
+```
+
+### Usage
+
+Run a command directly through `v`:
+
+```bash
+v go build ./...
+v npm run build
+```
+
+Pipe build or test output into `v`:
+
+```bash
+go test ./... 2>&1 | v
+cat build.log | v
+```
+
+Common flags:
+
+```bash
+v --version
+v --dry-run go test ./...
+v --provider openai --model gpt-4o-mini npm run build
+```
+
+### Add to PATH for global access
+
+On macOS/Linux, install into a directory already on your `PATH` like `/usr/local/bin` or add your custom bin directory to `PATH`.
+
+On Windows, place `v.exe` in a directory already on `PATH`, or add the install directory to `PATH` and reopen your terminal.
+
+This makes `v` available as a global CLI command from any folder.
 
 ---
 
