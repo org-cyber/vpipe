@@ -197,14 +197,93 @@ This makes `v` available as a global CLI command from any folder.
 
 ### .env File
 
-Create a `.env` file in the project root or executable directory:
+v supports multiple ways to configure environment variables with a priority system. Create `.env` files in any of these locations:
+
+#### Priority Order (Highest to Lowest):
+
+1. **Explicit file** via `--env-file` flag
+2. **Current working directory** (project-specific)
+3. **Executable directory** (global install)
+4. **User config directory** (global access)
+
+#### Option 1: Project-Specific (.env in current directory)
+
+Create a `.env` file in your project root:
 
 ```bash
-# Choose one provider (or multiple, depending on use)
+# Choose one or more providers
 GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+V_MODEL=gpt-4o-mini  # Optional model override
 ```
+
+#### Option 2: Global Access (Recommended for CLI usage)
+
+For system-wide access from any directory, create a global config:
+
+**Windows (PowerShell):**
+```powershell
+# Create the config directory
+mkdir -p "$env:USERPROFILE\.config\vpipe"
+
+# Create and edit the .env file
+notepad "$env:USERPROFILE\.config\vpipe\.env"
+```
+
+**Linux/macOS:**
+```bash
+# Create the config directory
+mkdir -p "$HOME/.config/vpipe"
+
+# Create and edit the .env file
+nano "$HOME/.config/vpipe/.env"
+# or
+code "$HOME/.config/vpipe/.env"
+```
+
+**Add your API keys to the global .env file:**
+```bash
+GROQ_API_KEY=your_groq_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+V_MODEL=optional_model_override
+```
+
+**Benefits of global config:**
+- ✅ Works from any directory
+- ✅ Single setup for all projects
+- ✅ Lower priority than local configs (can be overridden per-project)
+- ✅ Secure (only accessible by your user account)
+
+#### Option 3: Explicit File Path
+
+Use the `--env-file` flag to specify any `.env` file location:
+
+```bash
+v --env-file /path/to/custom/.env go build ./...
+v --env-file ./config/prod.env npm run build
+```
+
+#### Option 4: System Environment Variables
+
+Set environment variables directly in your shell (highest precedence except explicit --env-file):
+
+```bash
+# Linux/macOS
+export GROQ_API_KEY="your_key"
+export V_MODEL="gpt-4o"
+
+# Windows PowerShell
+$env:GROQ_API_KEY = "your_key"
+$env:V_MODEL = "gpt-4o"
+
+# Windows Command Prompt
+set GROQ_API_KEY=your_key
+set V_MODEL=gpt-4o
+```
+
+**Note:** System environment variables take precedence over all `.env` files except when using `--env-file`.
 
 ---
 

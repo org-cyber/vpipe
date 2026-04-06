@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -196,40 +198,6 @@ type anthropicErrorResponse struct {
 // ==============================
 // Config loader
 // ==============================
-
-func loadConfig(providerFlag, modelFlag string) (*Config, error) {
-	_ = godotenv.Load()
-
-	provider := Provider(strings.ToLower(providerFlag))
-
-	// Validate provider
-	defaults, ok := providerDefaults[provider]
-	if !ok {
-		return nil, fmt.Errorf("unsupported provider %q — choose: groq, openai, anthropic", providerFlag)
-	}
-
-	// Resolve API key
-	apiKey := os.Getenv(defaults.EnvKey)
-	if apiKey == "" {
-		return nil, fmt.Errorf("missing %s environment variable for provider %q", defaults.EnvKey, provider)
-	}
-
-	// Resolve model: flag > env > default
-	model := modelFlag
-	if model == "" {
-		model = os.Getenv("V_MODEL")
-	}
-	if model == "" {
-		model = defaults.DefaultModel
-	}
-
-	return &Config{
-		Provider: provider,
-		APIKey:   apiKey,
-		Model:    model,
-	}, nil
-}
-
 // ==============================
 // Main
 // ==============================
@@ -239,6 +207,7 @@ func main() {
 	debug := flag.Bool("debug", false, "Show raw inputs and outputs for debugging")
 	timeout := flag.Int("timeout", 30, "Timeout for command execution in seconds")
 	help := flag.Bool("help", false, "Show help")
+	envFile := flag.String("env-file", "", "Path to .env file ")
 	h := flag.Bool("h", false, "Show help")
 	ver := flag.Bool("version", false, "Show version")
 	provider := flag.String("provider", "groq", "AI provider: groq | openai | anthropic")
@@ -259,7 +228,7 @@ func main() {
 	commandArgs := flag.Args()
 
 	if len(commandArgs) > 0 {
-		config, err := loadConfig(*provider, *model)
+		config, err := loadConfig(*provider, *model, *envFile)
 		if err != nil {
 			color.Red("❌ " + err.Error())
 			os.Exit(1)
@@ -268,7 +237,7 @@ func main() {
 		return
 	}
 
-	config, err := loadConfig(*provider, *model)
+	config, err := loadConfig(*provider, *model, *envFile)
 	if err != nil {
 		color.Yellow("⚠️  " + err.Error())
 		os.Exit(1)
@@ -319,6 +288,73 @@ func main() {
 	}
 
 	printAnalysis(aiResponse)
+}
+
+func loadConfig(providerFlag, modelFlag, envFile string) (*Config, error) {
+	// Priority 1: Environment variables already set (CI/CD, explicit exports)
+	// Skip godotenv if keys are already in environment
+	if envFile != "" {
+		_ = godotenv.Load(envFile)
+
+	}
+	// Priority 2: .env in current working directory (project-specific)
+	_ = godotenv.Load()
+
+	// Priority 3: .env in executable's directory (global install)
+	// Only check if no keys found yet
+	if !anyAPIKeySet() {
+		if exePath, err := os.Executable(); err == nil {
+			exeDir := filepath.Dir(exePath)
+			envPath := filepath.Join(exeDir, ".env")
+			_ = godotenv.Load(envPath)
+		}
+	}
+
+	// Priority 4: .env in user's home config directory (~/.config/vpipe/.env)
+	if !anyAPIKeySet() {
+		if home, err := os.UserHomeDir(); err == nil {
+			configDir := filepath.Join(home, ".config", "vpipe")
+			envPath := filepath.Join(configDir, ".env")
+			_ = godotenv.Load(envPath)
+		}
+	}
+
+	provider := Provider(strings.ToLower(providerFlag))
+	defaults, ok := providerDefaults[provider]
+	if !ok {
+		return nil, fmt.Errorf("unsupported provider %q — choose: groq, openai, anthropic", providerFlag)
+	}
+
+	// Resolve API key (environment now has priority from all sources above)
+	apiKey := os.Getenv(defaults.EnvKey)
+	if apiKey == "" {
+		return nil, fmt.Errorf("missing %s environment variable for provider %q (checked: current dir, vpipe dir, ~/.config/vpipe/.env, system env)", defaults.EnvKey, provider)
+	}
+
+	// Resolve model: flag > env > default
+	model := modelFlag
+	if model == "" {
+		model = os.Getenv("V_MODEL")
+	}
+	if model == "" {
+		model = defaults.DefaultModel
+	}
+
+	return &Config{
+		Provider: provider,
+		APIKey:   apiKey,
+		Model:    model,
+	}, nil
+}
+
+// Helper to check if any provider key is set
+func anyAPIKeySet() bool {
+	for _, p := range providerDefaults {
+		if os.Getenv(p.EnvKey) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // ==============================
