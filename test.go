@@ -137,7 +137,7 @@ func TestHasErrorSignal_IgnoresNormalLines(t *testing.T) {
 // ==============================
 
 func TestLoadConfig_UnknownProvider(t *testing.T) {
-	_, err := loadConfig("fakeprovider", "")
+	_, err := loadConfig("fakeprovider", "", "")
 	if err == nil {
 		t.Error("expected error for unknown provider")
 	}
