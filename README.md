@@ -1,6 +1,10 @@
 # v — AI Build Error Analyzer
 
 <p align="center">
+  <img src="gold.png" alt="v logo" width="160" />
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/version-2.1.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.25.6+-00ADD8?style=flat&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
