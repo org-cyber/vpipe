@@ -71,15 +71,13 @@ var sanitizePatterns = []*regexp.Regexp{
 	// AWS Secret Keys
 	regexp.MustCompile(`(?i)aws[_\-]secret[_\-]access[_\-]key["']?\s*[:=]\s*["']?[A-Za-z0-9/\+=]{40}["']?`),
 	// Generic API keys / tokens / secrets
-	regexp.MustCompile(`(?i)(api[_\-]key|token|secret|password|passwd|pwd)["']?\s*[:=]\s*["']?[A-Za-z0-9_\-]{16,}["']?`),
+	regexp.MustCompile(`(?i)\b[A-Z0-9_]*(api[_\-]?key|token|secret|password|passwd|pwd)\b\s*[:=]\s*["']?[^\s"']+["']?`),
 	// Emails
 	regexp.MustCompile(`[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}`),
 	// IP addresses (v4)
 	regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`),
-	// Windows paths
-	regexp.MustCompile(`[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]*`),
 	// Unix absolute paths
-	regexp.MustCompile(`(?:/[^\s\n\t"']+)+`),
+	regexp.MustCompile(`(?:/home/\w+/[^\s\n\t"']+)+|(?:/Users/\w+/[^\s\n\t"']+)+`),
 	// SSH / PEM Private keys
 	regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----`),
 	// Passwords embedded in URLs
@@ -471,11 +469,24 @@ func printAnalysis(response string) {
 // Smart Sanitization & Truncation
 // ==============================
 
+func preserveFilenamePaths(input string) string {
+	re := regexp.MustCompile(`([A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*([^\\/:*?"<>|\r\n]+):\d+(?::\d+)?)`)
+
+	return re.ReplaceAllStringFunc(input, func(match string) string {
+		parts := strings.Split(match, `\`)
+		if len(parts) == 0 {
+			return match
+		}
+		return parts[len(parts)-1]
+	})
+}
+
 // sanitizeInput removes sensitive data and intelligently truncates long inputs,
 // prioritising lines that contain error signals.
 func sanitizeInput(input string) string {
 	// Step 1: Redact secrets
-	result := input
+	result := preserveFilenamePaths(input)
+
 	for _, pattern := range sanitizePatterns {
 		result = pattern.ReplaceAllString(result, "[REDACTED]")
 	}
@@ -568,17 +579,27 @@ func smartTruncate(input string, maxChars int) string {
 // AI Dispatch
 // ==============================
 
-const systemPrompt = `You are a senior software engineer and debugging expert.
+const systemPrompt = `
+You are a senior software engineer and debugging expert.
 
-Analyze the provided command output or error log carefully.
+Analyze the command output using evidence from the error message and stack trace.
+
+Reasoning priority (strict order):
+1. Identify the exact immediate error message or exception type.
+2. Identify the top-most stack frame or file/line number where the failure originates.
+3. Explain the most direct technical cause shown by the trace.
+4. Only infer secondary causes (configuration, dependencies, environment variables, permissions) if the trace explicitly supports them.
+
+Never speculate beyond the evidence in the log.
+Do not assume missing environment variables, authentication issues, or configuration problems unless directly shown.
 
 Respond in exactly this structured format:
 
 Root cause:
-- One concise sentence explaining the main issue.
+- One concise sentence explaining the direct failure.
 
 Why it happened:
-- Brief technical explanation of why this error occurred.
+- Brief technical explanation based strictly on the stack trace and stderr.
 
 Suggested fix:
 - Step 1: ...
@@ -590,9 +611,10 @@ Next command to try:
 
 Rules:
 - Be direct, specific, and actionable.
-- Do not repeat the input back.
-- Do not add disclaimers or filler text.
-- If STDERR and STDOUT are both provided, focus on STDERR for root cause.`
+- Focus on the immediate failure source first.
+- Prefer file names, line numbers, and exact exception types.
+- If STDERR and STDOUT are both provided, prioritize STDERR.
+`
 
 func callAI(errorLog string, maxTokens int, cfg *Config) (string, error) {
 	messages := []ChatMessage{
