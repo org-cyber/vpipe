@@ -206,6 +206,8 @@ func main() {
 	timeout := flag.Int("timeout", 30, "Timeout for command execution in seconds")
 	help := flag.Bool("help", false, "Show help")
 	envFile := flag.String("env-file", "", "Path to .env file ")
+	ciMode := flag.Bool("ci", false, "force GitHub Actions workflow command output")
+	noCiMode := flag.Bool("no-ci", false, "force console output (disable CI auto-detection)")
 	h := flag.Bool("h", false, "Show help")
 	ver := flag.Bool("version", false, "Show version")
 	provider := flag.String("provider", "groq", "AI provider: groq | openai | anthropic")
@@ -285,7 +287,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	printAnalysis(aiResponse)
+	args := []string{"(stdin)"}
+	exitCode := 0
+	if *ciMode || (isCI() && !*noCiMode) {
+		meta := CIMeta{
+			Command:  strings.Join(args, ""),
+			ExitCode: exitCode,
+		}
+		color.Cyan(formatCIOutput(aiResponse, meta))
+
+	} else {
+		fmt.Println(color.CyanString("\n🤖 AI Analysis:"))
+		printAnalysis(aiResponse)
+	}
+
 }
 
 func loadConfig(providerFlag, modelFlag, envFile string) (*Config, error) {
