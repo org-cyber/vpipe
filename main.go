@@ -205,13 +205,11 @@ func main() {
 	debug := flag.Bool("debug", false, "Show raw inputs and outputs for debugging")
 	timeout := flag.Int("timeout", 30, "Timeout for command execution in seconds")
 	help := flag.Bool("help", false, "Show help")
-	envFile := flag.String("env-file", "", "Path to .env file ")
-	ciMode := flag.Bool("ci", false, "force GitHub Actions workflow command output")
-	noCiMode := flag.Bool("no-ci", false, "force console output (disable CI auto-detection)")
 	h := flag.Bool("h", false, "Show help")
 	ver := flag.Bool("version", false, "Show version")
 	provider := flag.String("provider", "groq", "AI provider: groq | openai | anthropic")
 	model := flag.String("model", "", "Override the model (e.g. gpt-4o, claude-opus-4-6)")
+	envFile := flag.String("env-file", "", "Path to .env file")
 	maxTokens := flag.Int("max-tokens", 600, "Maximum tokens in AI response")
 	flag.Parse()
 
@@ -287,20 +285,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	args := []string{"(stdin)"}
-	exitCode := 0
-	if *ciMode || (isCI() && !*noCiMode) {
-		meta := CIMeta{
-			Command:  strings.Join(args, ""),
-			ExitCode: exitCode,
-		}
-		color.Cyan(formatCIOutput(aiResponse, meta))
-
-	} else {
-		fmt.Println(color.CyanString("\n🤖 AI Analysis:"))
-		printAnalysis(aiResponse)
-	}
-
+	fmt.Println(color.CyanString("\n🤖 AI Analysis:"))
+	printAnalysis(aiResponse)
 }
 
 func loadConfig(providerFlag, modelFlag, envFile string) (*Config, error) {
